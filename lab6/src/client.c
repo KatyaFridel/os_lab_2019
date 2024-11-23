@@ -11,24 +11,12 @@
 #include <netinet/ip.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <utils.h>
 
 struct Server {
   char ip[255];
   int port;
 };
-
-uint64_t MultModulo(uint64_t a, uint64_t b, uint64_t mod) {
-  uint64_t result = 0;
-  a = a % mod;
-  while (b > 0) {
-    if (b % 2 == 1)
-      result = (result + a) % mod;
-    a = (a * 2) % mod;
-    b /= 2;
-  }
-
-  return result % mod;
-}
 
 bool ConvertStringToUI64(const char *str, uint64_t *val) {
   char *end = NULL;
@@ -48,7 +36,7 @@ bool ConvertStringToUI64(const char *str, uint64_t *val) {
 int main(int argc, char **argv) {
   uint64_t k = -1;
   uint64_t mod = -1;
-  char servers[255] = {'\0'}; // TODO: explain why 255
+  char servers[255] = {'\0'};
 
   while (true) {
     int current_optind = optind ? optind : 1;
@@ -69,14 +57,16 @@ int main(int argc, char **argv) {
       switch (option_index) {
       case 0:
         ConvertStringToUI64(optarg, &k);
-        // TODO: your code here
         break;
       case 1:
         ConvertStringToUI64(optarg, &mod);
-        // TODO: your code here
         break;
       case 2:
-        // TODO: your code here
+        if (strlen(optarg) > 255)
+        {
+          fprintf(stderr, "Filename is too long\n %s\n", optarg);
+          return 1;
+        }
         memcpy(servers, optarg, strlen(optarg));
         break;
       default:
@@ -98,14 +88,34 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // TODO: for one server here, rewrite with servers from file
-  unsigned int servers_num = 1;
-  struct Server *to = malloc(sizeof(struct Server) * servers_num);
-  // TODO: delete this and parallel work between servers
-  to[0].port = 20001;
-  memcpy(to[0].ip, "127.0.0.1", sizeof("127.0.0.1"));
+  FILE *file = fopen(servers, "r");
+  if (file == NULL) {
+    fprintf(stderr, "Could not open servers file\n");
+    return 1;
+  }
 
-  // TODO: work continiously, rewrite to make parallel
+  unsigned int lines = 0;
+
+  int32_t last = '\n';
+  int32_t c;
+  while (EOF != (c = fgetc(file))) {
+    if (c == '\n' && last != '\n') {
+      ++lines;
+    }
+    last = c;
+  }
+
+  unsigned int servers_num = lines + 1; 
+  struct Server *to = malloc(sizeof(struct Server) * servers_num);
+  rewind(file);
+  int j = 0;
+  while (fscanf(file, "%[^:]:%d\n", to[j].ip, &to[j].port))
+    if (j++ > servers_num)
+      break;
+  fclose(file);
+
+  uint64_t final_answer = 1;
+
   for (int i = 0; i < servers_num; i++) {
     struct hostent *hostname = gethostbyname(to[i].ip);
     if (hostname == NULL) {
@@ -116,7 +126,7 @@ int main(int argc, char **argv) {
     struct sockaddr_in server;
     server.sin_family = AF_INET;
     server.sin_port = htons(to[i].port);
-    server.sin_addr.s_addr = *((unsigned long *)hostname->h_addr);
+    server.sin_addr.s_addr = *((unsigned long *)hostname->h_addr_list[0]);
 
     int sck = socket(AF_INET, SOCK_STREAM, 0);
     if (sck < 0) {
@@ -129,10 +139,14 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    // TODO: for one server
-    // parallel between servers
-    uint64_t begin = 1;
-    uint64_t end = k;
+    uint64_t n = k / servers_num;
+    uint64_t begin = i * n;
+    uint64_t end;
+    if (i == servers_num - 1) {
+        end = k;
+    } else {
+        end = (i + 1) * n;
+    }
 
     char task[sizeof(uint64_t) * 3];
     memcpy(task, &begin, sizeof(uint64_t));
@@ -150,14 +164,12 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    // TODO: from one server
-    // unite results
     uint64_t answer = 0;
     memcpy(&answer, response, sizeof(uint64_t));
-    printf("answer: %llu\n", answer);
-
+    final_answer = MultModulo(final_answer, answer, mod);
     close(sck);
   }
+  printf("final answer: %lu\n", final_answer % mod);
   free(to);
 
   return 0;
